@@ -51,7 +51,8 @@ internal sealed class GuardApplication : ApplicationContext
             "Key Bounce Guard is a free community utility created by a keyboard user.\n\n" +
             "It temporarily blocks same-key false repeats under 49 ms and records only those blocked events. " +
             "It does not repair hardware and does not replace warranty service.\n\n" +
-            "No network access, telemetry, driver installation, or ordinary keystroke logging.",
+            "No network access, telemetry, driver installation, or ordinary keystroke logging.\n\n" +
+            "Thanks, suggestions, and bug reports: 7724927@gmail.com",
             "About Key Bounce Guard", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()));

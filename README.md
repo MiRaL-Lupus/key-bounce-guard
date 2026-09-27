@@ -4,6 +4,8 @@ Free, temporary Windows tray workaround for keyboard bounce / false double press
 
 **Status:** v0.1.0 — independent community utility, not affiliated with any keyboard manufacturer.
 
+**Thanks, suggestions, and bug reports:** [7724927@gmail.com](mailto:7724927@gmail.com)
+
 ## What it does
 
 - Blocks a second **physical press of the same key** only when it starts less than 49 ms after the preceding accepted key release. The default threshold is **49 ms**; confirmed faulty events in the original investigation were approximately **38–39 ms** apart.
