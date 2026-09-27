@@ -9,6 +9,7 @@ Free, temporary Windows tray workaround for keyboard bounce / false double press
 - Blocks a second **physical press of the same key** only when it starts less than 49 ms after the preceding accepted key release. The default threshold is **49 ms**; confirmed faulty events in the original investigation were approximately **38–39 ms** apart.
 - Blocks the matching release too, so Windows never receives half of the false second press.
 - Leaves ordinary key holds and Windows auto-repeat alone.
+- Never filters modifier keys (`Ctrl`, `Shift`, `Alt`, or Windows keys), so common shortcuts stay untouched.
 - Records only blocked suspected false repeats in `Logs\\blocked_key_events_YYYY-MM-DD.csv`; it does not log ordinary typing.
 - Does not show a popup for each blocked event. The tray menu shows the count and can open the log folder.
 

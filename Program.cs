@@ -118,6 +118,11 @@ internal sealed class BounceFilter
 
     public FilterDecision Process(KeyEventData input)
     {
+        // Modifier keys form shortcuts such as Ctrl+C and Alt+Tab. Do not ever
+        // suppress them: the guard is for ordinary character/function keys.
+        if (KeyIdentityRules.IsModifier(input.Key.VirtualKey))
+            return UpdateWithoutFiltering(input);
+
         if (!Enabled)
             return UpdateWithoutFiltering(input);
 
@@ -161,6 +166,16 @@ internal sealed class BounceFilter
         }
         return new(false, false, 0);
     }
+}
+
+internal static class KeyIdentityRules
+{
+    public static bool IsModifier(uint virtualKey) => virtualKey is
+        0x10 or // Shift
+        0x11 or // Control
+        0x12 or // Alt/Menu
+        0x5B or // Left Windows
+        0x5C;   // Right Windows
 }
 
 internal static class StopwatchTicks
@@ -318,7 +333,12 @@ internal static class GuardSelfTest
         Ensure(!filter.Process(new(d, true, false, start + 250 * tickPerMs)).Block, "Held-key auto-repeat must pass.");
         Ensure(!filter.Process(new(d, false, false, start + 260 * tickPerMs)).Block, "Held-key release must pass.");
 
-        Console.WriteLine("SELF_TEST_PASS: bounce pair suppressed; deliberate press and held-key auto-repeat preserved.");
+        var ctrl = new KeyIdentity((uint)Keys.ControlKey, 29, false);
+        Ensure(!filter.Process(new(ctrl, true, false, start + 280 * tickPerMs)).Block, "Modifier down must pass.");
+        Ensure(!filter.Process(new(ctrl, false, false, start + 290 * tickPerMs)).Block, "Modifier up must pass.");
+        Ensure(!filter.Process(new(ctrl, true, false, start + 300 * tickPerMs)).Block, "Rapid modifier re-press must never be filtered.");
+
+        Console.WriteLine("SELF_TEST_PASS: bounce pair suppressed; deliberate press, held-key auto-repeat, and modifiers preserved.");
         return 0;
     }
 

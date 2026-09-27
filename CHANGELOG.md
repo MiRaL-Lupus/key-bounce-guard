@@ -6,6 +6,7 @@
 - Windows tray guard for same-key false repeats below 49 ms.
 - Blocks the matching release as well, preventing half-events.
 - Does not alter normal key holds or Windows auto-repeat.
+- Explicitly excludes modifier keys so shortcut combinations remain untouched.
 - Records only blocked suspected bounce events in a local CSV log.
 - Single-file installer with optional start at user sign-in.
 
