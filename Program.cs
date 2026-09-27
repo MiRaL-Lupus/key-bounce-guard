@@ -118,11 +118,6 @@ internal sealed class BounceFilter
 
     public FilterDecision Process(KeyEventData input)
     {
-        // Modifier keys form shortcuts such as Ctrl+C and Alt+Tab. Do not ever
-        // suppress them: the guard is for ordinary character/function keys.
-        if (KeyIdentityRules.IsModifier(input.Key.VirtualKey))
-            return UpdateWithoutFiltering(input);
-
         if (!Enabled)
             return UpdateWithoutFiltering(input);
 
@@ -166,16 +161,6 @@ internal sealed class BounceFilter
         }
         return new(false, false, 0);
     }
-}
-
-internal static class KeyIdentityRules
-{
-    public static bool IsModifier(uint virtualKey) => virtualKey is
-        0x10 or // Shift
-        0x11 or // Control
-        0x12 or // Alt/Menu
-        0x5B or // Left Windows
-        0x5C;   // Right Windows
 }
 
 internal static class StopwatchTicks
@@ -334,11 +319,16 @@ internal static class GuardSelfTest
         Ensure(!filter.Process(new(d, false, false, start + 260 * tickPerMs)).Block, "Held-key release must pass.");
 
         var ctrl = new KeyIdentity((uint)Keys.ControlKey, 29, false);
-        Ensure(!filter.Process(new(ctrl, true, false, start + 280 * tickPerMs)).Block, "Modifier down must pass.");
-        Ensure(!filter.Process(new(ctrl, false, false, start + 290 * tickPerMs)).Block, "Modifier up must pass.");
-        Ensure(!filter.Process(new(ctrl, true, false, start + 300 * tickPerMs)).Block, "Rapid modifier re-press must never be filtered.");
+        var c = new KeyIdentity((uint)Keys.C, 46, false);
+        var v = new KeyIdentity((uint)Keys.V, 47, false);
+        Ensure(!filter.Process(new(ctrl, true, false, start + 280 * tickPerMs)).Block, "Ctrl down must pass.");
+        Ensure(!filter.Process(new(c, true, false, start + 285 * tickPerMs)).Block, "C down in Ctrl+C must pass.");
+        Ensure(!filter.Process(new(c, false, false, start + 290 * tickPerMs)).Block, "C up in Ctrl+C must pass.");
+        Ensure(!filter.Process(new(v, true, false, start + 295 * tickPerMs)).Block, "V down in Ctrl+V must not be treated as C.");
+        Ensure(!filter.Process(new(v, false, false, start + 300 * tickPerMs)).Block, "V up in Ctrl+V must pass.");
+        Ensure(!filter.Process(new(ctrl, false, false, start + 305 * tickPerMs)).Block, "Ctrl up must pass.");
 
-        Console.WriteLine("SELF_TEST_PASS: bounce pair suppressed; deliberate press, held-key auto-repeat, and modifiers preserved.");
+        Console.WriteLine("SELF_TEST_PASS: bounce pair suppressed; deliberate press, held-key auto-repeat, and Ctrl+C / Ctrl+V preserved.");
         return 0;
     }
 
