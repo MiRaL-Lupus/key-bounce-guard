@@ -27,11 +27,15 @@ internal sealed class GuardApplication : ApplicationContext
     private readonly GlobalKeyboardHook _hook;
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _enabledItem;
+    private readonly ToolStripMenuItem _notificationsItem;
     private readonly ToolStripMenuItem _blockedCountItem;
+    private readonly GuardSettings _settings;
+    private readonly BlockNotificationForm _notification = new();
 
     public GuardApplication()
     {
         var root = AppContext.BaseDirectory;
+        _settings = GuardSettings.Load(Path.Combine(root, "guard_settings.json"));
         _logger = new GuardLogger(Path.Combine(root, "Logs"));
         _logger.WriteStartup(ThresholdMilliseconds);
 
@@ -44,13 +48,21 @@ internal sealed class GuardApplication : ApplicationContext
             _logger.WriteState(_filter.Enabled);
         };
         menu.Items.Add(_enabledItem);
-        _blockedCountItem = new ToolStripMenuItem($"Blocked today: {_logger.GetTodayBlockedCount()}") { Enabled = false };
+        _notificationsItem = new ToolStripMenuItem("Show block notifications") { Checked = _settings.ShowBlockNotifications, CheckOnClick = true };
+        _notificationsItem.Click += (_, _) => { _settings.ShowBlockNotifications = _notificationsItem.Checked; _settings.Save(); };
+        menu.Items.Add(_notificationsItem);
+        menu.Items.Add(new ToolStripSeparator());
+        _blockedCountItem = new ToolStripMenuItem($"────  Blocked today: {_logger.GetTodayBlockedCount()}  ────") { Enabled = false, Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold), BackColor = System.Drawing.Color.FromArgb(235, 235, 235) };
         menu.Items.Add(_blockedCountItem);
-        menu.Items.Add(new ToolStripMenuItem("Open blocked-event log", null, (_, _) => _logger.OpenLogFolder()));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Open readable log", null, (_, _) => _logger.OpenReadableLog()));
+        menu.Items.Add(new ToolStripMenuItem("Open log folder", null, (_, _) => _logger.OpenLogFolder()));
+        menu.Items.Add(new ToolStripMenuItem("Updates (v1.1)", null, (_, _) => MessageBox.Show("v1.1\n\n• Optional on-screen block notifications (enabled by default).\n• Readable HTML log with bold key names.\n• Extended CSV columns and separated tray counter.", "Key Bounce Guard — Updates", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => MessageBox.Show(
-            "Key Bounce Guard is a free community utility created by a keyboard user.\n\n" +
+            "Key Bounce Guard v1.1 is a free community utility created by a keyboard user.\n\n" +
             "It temporarily blocks same-key false repeats under 49 ms and records only those blocked events. " +
             "It does not repair hardware and does not replace warranty service.\n\n" +
+            "Repository: https://github.com/MiRaL-Lupus/key-bounce-guard\n" +
             "No network access, telemetry, driver installation, or ordinary keystroke logging.\n\n" +
             "Thanks, suggestions, and bug reports: 7724927@gmail.com",
             "About Key Bounce Guard", MessageBoxButtons.OK, MessageBoxIcon.Information)));
@@ -86,8 +98,10 @@ internal sealed class GuardApplication : ApplicationContext
 
         if (decision.NewFalseRepeat)
         {
-            _logger.WriteBlocked(keyEvent, decision.IntervalMilliseconds);
-            _blockedCountItem.Text = $"Blocked today: {_logger.GetTodayBlockedCount()}";
+            var key = KeyNameFormatter.Describe(keyEvent);
+            _logger.WriteBlocked(key, decision.IntervalMilliseconds);
+            _blockedCountItem.Text = $"────  Blocked today: {_logger.GetTodayBlockedCount()}  ────";
+            if (_settings.ShowBlockNotifications) _notification.ShowBlocked(key, decision.IntervalMilliseconds);
         }
 
         return true;
@@ -99,6 +113,7 @@ internal sealed class GuardApplication : ApplicationContext
         _logger.WriteShutdown();
         _tray.Visible = false;
         _tray.Dispose();
+        _notification.Dispose();
         base.ExitThreadCore();
     }
 }
@@ -180,31 +195,38 @@ internal sealed class GuardLogger
         Directory.CreateDirectory(_logDirectory);
     }
 
-    private string CurrentLog => Path.Combine(_logDirectory, $"blocked_key_events_{DateTime.Now:yyyy-MM-dd}.csv");
+    // Keep the v1.1 table schema separate from an already-opened v1.0 daily log.
+    // This avoids mixing rows with different column layouts after an in-place upgrade.
+    private string CurrentLog => Path.Combine(_logDirectory, $"blocked_key_events_{DateTime.Now:yyyy-MM-dd}_v1.1.csv");
 
     public void WriteStartup(double threshold) => Write("STARTED", "", "", threshold.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
     public void WriteShutdown() => Write("STOPPED", "", "", "");
     public void WriteState(bool enabled) => Write(enabled ? "PROTECTION_ON" : "PROTECTION_OFF", "", "", "");
 
-    public void WriteBlocked(KeyEventData key, double intervalMilliseconds) =>
-        Write("BLOCKED_FALSE_REPEAT", KeyNameFormatter.Format(key), key.Key.ScanCode.ToString(), intervalMilliseconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+    public void WriteBlocked(KeyDescription key, double intervalMilliseconds) =>
+        Write("BLOCKED_FALSE_REPEAT", key.Name, key.ScanCode, intervalMilliseconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), key.Code);
 
     public int GetTodayBlockedCount()
     {
-        if (!File.Exists(CurrentLog))
-            return 0;
-        return File.ReadLines(CurrentLog).Count(line => line.Contains(",BLOCKED_FALSE_REPEAT,"));
+        var prefix = $"blocked_key_events_{DateTime.Now:yyyy-MM-dd}";
+        return Directory.EnumerateFiles(_logDirectory, $"{prefix}*.csv")
+            .SelectMany(path => File.ReadLines(path).Skip(1))
+            .Count(line => line.Contains(",BLOCKED_FALSE_REPEAT,"));
     }
 
-    private void Write(string status, string key, string scanCode, string interval)
+    private void Write(string status, string key, string scanCode, string interval, string keyCode = "")
     {
         lock (_sync)
         {
             var fileIsNew = !File.Exists(CurrentLog);
-            using var writer = new StreamWriter(CurrentLog, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            if (fileIsNew)
-                writer.WriteLine("timestamp_local,status,key,scan_code,interval_ms");
-            writer.WriteLine(string.Join(',', DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), status, Csv(key), Csv(scanCode), Csv(interval)));
+            using (var writer = new StreamWriter(CurrentLog, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
+            {
+                if (fileIsNew)
+                    writer.WriteLine("timestamp_local,status,key_name,scan_code,interval_ms,key_code");
+                writer.WriteLine(string.Join(',', DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), status, Csv(key), Csv(scanCode), Csv(interval), Csv(keyCode)));
+                writer.Flush();
+            }
+            WriteReadableHtml();
         }
     }
 
@@ -214,12 +236,79 @@ internal sealed class GuardLogger
         Process.Start(new ProcessStartInfo { FileName = _logDirectory, UseShellExecute = true });
     }
 
+    public void OpenReadableLog()
+    {
+        WriteReadableHtml();
+        Process.Start(new ProcessStartInfo { FileName = Path.ChangeExtension(CurrentLog, ".html"), UseShellExecute = true });
+    }
+
+    private void WriteReadableHtml()
+    {
+        var rows = File.Exists(CurrentLog) ? File.ReadLines(CurrentLog).Skip(1).Select(ParseCsv).Where(row => row.Length >= 5).ToArray() : [];
+        var html = new StringBuilder("<html><head><meta charset='utf-8'><style>body{font:14px Segoe UI;margin:24px}table{border-collapse:collapse}th,td{padding:8px 12px;border-bottom:1px solid #ddd;text-align:left}th{background:#20242b;color:white}tr:nth-child(even){background:#f5f5f5}.blocked{color:#a40000;font-weight:700}</style></head><body><h2>Key Bounce Guard — blocked events</h2><p>Generated locally. Only blocked suspected repeats are listed.</p><table><tr><th>Time</th><th>Status</th><th>Key</th><th>Key code</th><th>Scan code</th><th>Interval (ms)</th></tr>");
+        foreach (var row in rows)
+        {
+            var keyCode = row.Length > 5 ? row[5] : "";
+            html.Append("<tr><td>").Append(Html(row[0])).Append("</td><td>").Append(Html(row[1])).Append("</td><td class='blocked'><strong>").Append(Html(row[2])).Append("</strong></td><td>").Append(Html(keyCode)).Append("</td><td>").Append(Html(row[3])).Append("</td><td>").Append(Html(row[4])).Append("</td></tr>");
+        }
+        html.Append("</table></body></html>");
+        File.WriteAllText(Path.ChangeExtension(CurrentLog, ".html"), html.ToString(), new UTF8Encoding(true));
+    }
+
+    private static string[] ParseCsv(string line)
+    {
+        var values = new List<string>(); var item = new StringBuilder(); var quoted = false;
+        for (var i = 0; i < line.Length; i++) { var c = line[i]; if (c == '"') { if (quoted && i + 1 < line.Length && line[i + 1] == '"') { item.Append(c); i++; } else quoted = !quoted; } else if (c == ',' && !quoted) { values.Add(item.ToString()); item.Clear(); } else item.Append(c); }
+        values.Add(item.ToString()); return values.ToArray();
+    }
+    private static string Html(string value) => System.Net.WebUtility.HtmlEncode(value);
+
     private static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
 }
 
+internal readonly record struct KeyDescription(string Name, string Code, string ScanCode);
+
 internal static class KeyNameFormatter
 {
-    public static string Format(KeyEventData key) => $"{(Keys)key.Key.VirtualKey} (VK={key.Key.VirtualKey}, SC={key.Key.ScanCode}{(key.Key.Extended ? ", EXT" : "")})";
+    public static KeyDescription Describe(KeyEventData key)
+    {
+        var vk = key.Key.VirtualKey;
+        var name = vk is >= 0x30 and <= 0x39 ? ((char)vk).ToString() : vk is >= 0x41 and <= 0x5A ? ((char)vk).ToString() : ((Keys)vk) switch { Keys.Back => "Backspace", Keys.LControlKey => "Left Ctrl", Keys.RControlKey => "Right Ctrl", Keys.LShiftKey => "Left Shift", Keys.RShiftKey => "Right Shift", Keys.None => "Unknown key", var value => value.ToString() };
+        var code = $"VK={vk}{(key.Key.Extended ? ", EXT" : "")}";
+        return new KeyDescription(name, code, key.Key.ScanCode.ToString());
+    }
+}
+
+internal sealed class GuardSettings
+{
+    public bool ShowBlockNotifications { get; set; } = true;
+    private string _path = "";
+    public static GuardSettings Load(string path)
+    {
+        try { var value = System.Text.Json.JsonSerializer.Deserialize<GuardSettings>(File.ReadAllText(path)) ?? new GuardSettings(); value._path = path; return value; }
+        catch { return new GuardSettings { _path = path }; }
+    }
+    public void Save() => File.WriteAllText(_path, System.Text.Json.JsonSerializer.Serialize(this));
+}
+
+internal sealed class BlockNotificationForm : Form
+{
+    private readonly RichTextBox _text = new() { Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = System.Drawing.Color.FromArgb(255, 252, 232), Font = new System.Drawing.Font("Segoe UI", 10F), ScrollBars = RichTextBoxScrollBars.None };
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 5000 };
+    public BlockNotificationForm()
+    {
+        FormBorderStyle = FormBorderStyle.FixedToolWindow; ShowInTaskbar = false; TopMost = true; Width = 470; Height = 108; Controls.Add(_text);
+        _timer.Tick += (_, _) => { _timer.Stop(); Hide(); };
+        Click += (_, _) => Hide(); _text.Click += (_, _) => Hide();
+    }
+    public void ShowBlocked(KeyDescription key, double interval)
+    {
+        _text.Clear(); _text.SelectionFont = new System.Drawing.Font(_text.Font, System.Drawing.FontStyle.Regular); _text.AppendText("Blocked false repeat: ");
+        _text.SelectionFont = new System.Drawing.Font(_text.Font, System.Drawing.FontStyle.Bold); _text.AppendText(key.Name);
+        _text.SelectionFont = new System.Drawing.Font(_text.Font, System.Drawing.FontStyle.Regular); _text.AppendText($"   {interval:F3} ms   ({key.Code}, SC={key.ScanCode})\n{DateTime.Now:HH:mm:ss}   Key: {key.Name}");
+        var area = Screen.PrimaryScreen!.WorkingArea; Location = new System.Drawing.Point(area.Right - Width - 16, area.Bottom - Height - 16);
+        if (!Visible) Show(); else BringToFront(); _timer.Stop(); _timer.Start();
+    }
 }
 
 internal sealed class GlobalKeyboardHook : IDisposable

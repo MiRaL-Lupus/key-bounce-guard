@@ -2,7 +2,7 @@
 
 Free, temporary Windows tray workaround for keyboard bounce / false double presses.
 
-**Status:** v0.1.0 — independent community utility, not affiliated with any keyboard manufacturer.
+**Status:** v1.1 — independent community utility, not affiliated with any keyboard manufacturer.
 
 **Thanks, suggestions, and bug reports:** [7724927@gmail.com](mailto:7724927@gmail.com)
 
@@ -12,8 +12,8 @@ Free, temporary Windows tray workaround for keyboard bounce / false double press
 - Blocks the matching release too, so Windows never receives half of the false second press.
 - Leaves ordinary key holds and Windows auto-repeat alone.
 - A false repeat is matched only against the same physical key identity. Shortcut keys remain independent: for example, `Ctrl+C` and `Ctrl+V` use different key identities and cannot be treated as a duplicate pair.
-- Records only blocked suspected false repeats in `Logs\\blocked_key_events_YYYY-MM-DD.csv`; it does not log ordinary typing.
-- Does not show a popup for each blocked event. The tray menu shows the count and can open the log folder.
+- Records only blocked suspected false repeats in `Logs\\blocked_key_events_YYYY-MM-DD_v1.1.csv`; it does not log ordinary typing. A readable local HTML table is generated beside the CSV.
+- The tray menu has a `Show block notifications` checkbox, enabled by default. Notifications show the key name, virtual/scan codes, measured interval, and local time.
 
 ## Run
 

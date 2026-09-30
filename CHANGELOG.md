@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1 — 2026-09-29
+
+- Added an on-screen blocked-event notification, enabled by default and controllable from the tray menu.
+- Added a readable local HTML log with bold key names and labelled columns.
+- Extended CSV entries with separate key name, virtual-key code, scan code, and interval fields.
+- Improved tray layout with a separated blocked-event counter.
+- Added Updates and repository information in the tray menu.
+
 ## 0.1.0 — 2026-09-27
 
 - First public release.
